@@ -1,0 +1,9 @@
+[submodule "./Core"]
+	path = ./Core
+	url = https://github.com/M17-Project/libm17
+[submodule "Core/"]
+	path = Core/
+	url = https://github.com/M17-Project/libm17
+[submodule "Core/libm17"]
+	path = Core/libm17
+	url = https://github.com/M17-Project/libm17
