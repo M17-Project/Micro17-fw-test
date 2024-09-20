@@ -326,7 +326,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_Delay(250);
   setWiper(POT_BSB_IN,  0x100); HAL_Delay(10);
-  setWiper(POT_BSB_OUT, 0x0F0); HAL_Delay(10);
+  setWiper(POT_BSB_OUT, 0x0E0); HAL_Delay(10);
   setWiper(POT_AUD_IN,  0x080); HAL_Delay(10);
   setWiper(POT_AUD_OUT, 0x080); HAL_Delay(10);
   HAL_TIM_Base_Start(&htim7); //48kHz clock
@@ -397,7 +397,7 @@ int main(void)
 	  if(ptt_in==PTT_ACTIVE && state==ST_RX)
 	  {
 		  HAL_GPIO_WritePin(PTT_OUT_GPIO_Port, PTT_OUT_Pin, 1);
-		  HAL_Delay(100);
+		  HAL_Delay(60);
 
 		  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t*)data, 5*SYM_PER_FRA*10+1, DAC_ALIGN_12B_R);
 
@@ -407,7 +407,7 @@ int main(void)
 	  //PTT up
 	  if(ptt_in==PTT_INACTIVE && state==ST_TX)
 	  {
-		  HAL_Delay(100);
+		  HAL_Delay(60);
 		  HAL_GPIO_WritePin(PTT_OUT_GPIO_Port, PTT_OUT_Pin, 0);
 
 		  state=ST_RX;
@@ -417,7 +417,7 @@ int main(void)
 	  if(tx_done && state==ST_TX)
 	  {
 		  tx_done=0;
-		  HAL_Delay(100);
+		  HAL_Delay(200);
 		  HAL_GPIO_WritePin(PTT_OUT_GPIO_Port, PTT_OUT_Pin, 0);
 		  ptt_in=PTT_INACTIVE;
 		  state=ST_RX;
