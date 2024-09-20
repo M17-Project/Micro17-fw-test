@@ -26,6 +26,7 @@
 #include <math.h>
 
 #include <m17.h>
+#include <pccmd.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,10 +78,9 @@ typedef enum
 } state_t;
 
 uint16_t data[10*SYM_PER_FRA*10+1]={DAC_IDLE};	//one additional sample to set the idle voltage
-uint8_t str[64];							//string for radio control over uart
-volatile ptt_t ptt_in=PTT_INACTIVE;			//ptt state
-state_t state=ST_RX;						//radio state
-volatile uint8_t tx_done=0;					//baseband playback complete?
+volatile ptt_t ptt_in=PTT_INACTIVE;				//ptt state
+state_t state=ST_RX;							//radio state
+volatile uint8_t tx_done=0;						//baseband playback complete?
 
 //input data
 struct settings_t
@@ -338,8 +338,7 @@ int main(void)
 
   if(HAL_DAC_Start(&hdac1, DAC_CHANNEL_1)+HAL_DAC_Start(&hdac1, DAC_CHANNEL_2)==HAL_OK)
   {
-	  sprintf((char*)str, "\x02*SET,UI,TEXT,Micro17 OK\x03");
-	  HAL_UART_Transmit(&huart1, str, strlen((char*)str), 250);
+	  pcCmdWriteDisplay(&huart1, "Micro17 OK", "");
   }
 
   //input data
