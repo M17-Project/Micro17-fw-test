@@ -354,7 +354,7 @@ int main(void)
   HAL_Delay(250);
 
   setWiper(POT_BSB_IN,  0x100); HAL_Delay(10);
-  setWiper(POT_BSB_OUT, 0x0E0); HAL_Delay(10);
+  setWiper(POT_BSB_OUT, 0x0E0); HAL_Delay(10); //might need some more trimming
   setWiper(POT_AUD_IN,  0x080); HAL_Delay(10);
   setWiper(POT_AUD_OUT, 0x080); HAL_Delay(10);
 
@@ -369,6 +369,11 @@ int main(void)
   if(HAL_DAC_Start(&hdac1, DAC_CHANNEL_1)+HAL_DAC_Start(&hdac1, DAC_CHANNEL_2)==HAL_OK)
   {
 	  pcCmdWriteDisplay(&huart1, "Micro17 OK", "");
+  }
+  else
+  {
+	  pcCmdWriteDisplay(&huart1, "DAC ERR", "");
+	  while(1);
   }
 
   //input data
@@ -399,6 +404,8 @@ int main(void)
   lsf.crc[1]=lsf_crc&0xFF;
 
   generate_baseband(settings.msg, settings.phase);
+
+  pcCmdWriteDisplay(&huart1, "Micro17 OK", "BSB OK");
 
   /*while(1)
   {
