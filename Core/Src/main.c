@@ -77,10 +77,11 @@ typedef enum
 	ST_TX
 } state_t;
 
-uint16_t data[10*SYM_PER_FRA*10+1]={DAC_IDLE};	//one additional sample to set the idle voltage
+uint16_t data[30*SYM_PER_FRA*10+1]={DAC_IDLE};	//one additional sample to set the idle voltage
 volatile ptt_t ptt_in=PTT_INACTIVE;				//ptt state
 state_t state=ST_RX;							//radio state
 volatile uint8_t tx_done=0;						//baseband playback complete?
+uint16_t total_samples=0;
 
 //input data
 struct settings_t
@@ -88,14 +89,13 @@ struct settings_t
 	char dst_raw[10];						//raw, unencoded destination address
 	char src_raw[10];						//raw, unencoded source address
 	uint8_t can;							//Channel Access Number
-	char msg[64];							//text message
+	char msg[798];							//text message (32*25-2 bytes)
 	uint8_t phase;							//baseband phase 1-normal, 0-inverted
 } settings;
 
 //M17 stuff
 lsf_t lsf;									//Link Setup Frame data
 
-uint8_t full_packet_data[32*25]={0};		//packet payload
 uint32_t pkt_sym_cnt=0;
 uint16_t num_bytes=0;						//size of payload in bytes
 
@@ -229,9 +229,23 @@ void filter_symbols(uint16_t* out, const int8_t* in, const float* flt, uint8_t p
 	}
 }
 
-//generate baseband samples - add args later
-void generate_baseband(uint8_t phase_inv)
+//generate baseband samples TODO: add more args here (LSF etc.)
+void generate_baseband(char *msg, uint8_t phase_inv)
 {
+	uint8_t fn=0;
+	uint8_t full_packet_data[32*25]={0};
+	uint8_t packet_frame[26]={0};
+	uint16_t num_bytes=0;
+
+	//obtain data and append with CRC
+	memset(full_packet_data, 0, sizeof(full_packet_data));
+	full_packet_data[0]=0x05;
+	num_bytes=sprintf((char*)&full_packet_data[1], msg)+2; //prepended 0x05 and appended 0x00
+	uint16_t packet_crc=CRC_M17(full_packet_data, num_bytes);
+	full_packet_data[num_bytes]  =packet_crc>>8;
+	full_packet_data[num_bytes+1]=packet_crc&0xFF;
+	num_bytes+=2; //count in 2-byte CRC too
+
 	//flush the RRC filter
 	int8_t flush[SYM_PER_FRA]={0.0f};
 	filter_symbols(NULL, flush, rrc_taps_10, phase_inv);
@@ -246,18 +260,31 @@ void generate_baseband(uint8_t phase_inv)
 	filter_symbols(&data[1*SYM_PER_FRA*10], symbols, rrc_taps_10, phase_inv);
 
 	//generate frames
-	full_packet_data[25]=0x80|(num_bytes<<2); //fix this (hardcoded single frame of length<=25)
-	send_frame_i(symbols, full_packet_data, FRAME_PKT, NULL); //no counter yet
-	filter_symbols(&data[2*SYM_PER_FRA*10], symbols, rrc_taps_10, phase_inv);
+	while(num_bytes>25)
+	{
+		memcpy(packet_frame, &full_packet_data[fn*25], 25);
+		packet_frame[25]=fn<<2;
+		send_frame_i(symbols, packet_frame, FRAME_PKT, NULL);
+		filter_symbols(&data[(2+fn)*SYM_PER_FRA*10], symbols, rrc_taps_10, phase_inv);
+		fn++;
+		num_bytes-=25;
+	}
+
+	memset(packet_frame, 0, sizeof(packet_frame));
+	memcpy(packet_frame, &full_packet_data[fn*25], num_bytes);
+	packet_frame[25]=0x80|(num_bytes<<2);
+	send_frame_i(symbols, packet_frame, FRAME_PKT, NULL);
+	filter_symbols(&data[(2+fn)*SYM_PER_FRA*10], symbols, rrc_taps_10, phase_inv);
 
 	//generate EOT
 	pkt_sym_cnt=0;
 	send_eot_i(symbols, &pkt_sym_cnt);
-	filter_symbols(&data[3*SYM_PER_FRA*10], symbols, rrc_taps_10, phase_inv);
+	filter_symbols(&data[(3+fn)*SYM_PER_FRA*10], symbols, rrc_taps_10, phase_inv);
 
-	filter_symbols(&data[4*SYM_PER_FRA*10], flush, rrc_taps_10, phase_inv);
+	//settle samples at mid-scale
+	filter_symbols(&data[(4+fn)*SYM_PER_FRA*10], flush, rrc_taps_10, phase_inv);
 
-	data[5*SYM_PER_FRA*10]=DAC_IDLE;
+	total_samples=(4+fn)*SYM_PER_FRA*10 + 80; //it is enough to make sure the output voltage will settle
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -325,16 +352,19 @@ int main(void)
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   HAL_Delay(250);
+
   setWiper(POT_BSB_IN,  0x100); HAL_Delay(10);
   setWiper(POT_BSB_OUT, 0x0E0); HAL_Delay(10);
   setWiper(POT_AUD_IN,  0x080); HAL_Delay(10);
   setWiper(POT_AUD_OUT, 0x080); HAL_Delay(10);
-  HAL_TIM_Base_Start(&htim7); //48kHz clock
 
   //set idle voltages
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t*)data, 1, DAC_ALIGN_12B_R);
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_2, (uint32_t*)data, 1, DAC_ALIGN_12B_R);
+  HAL_TIM_Base_Start(&htim7); //48kHz clock
   HAL_Delay(4750);
+  HAL_TIM_Base_Stop(&htim7); //48kHz clock
+  tx_done=0;
 
   if(HAL_DAC_Start(&hdac1, DAC_CHANNEL_1)+HAL_DAC_Start(&hdac1, DAC_CHANNEL_2)==HAL_OK)
   {
@@ -342,19 +372,10 @@ int main(void)
   }
 
   //input data
-  sprintf(settings.msg, "Test message.");
+  sprintf(settings.msg, "Борітеся - поборете.");
   sprintf(settings.dst_raw, "ALL");
   sprintf(settings.src_raw, "N0CALL");
   settings.phase=0; //inverted
-
-  //obtain data and append with CRC
-  //memset(full_packet_data, 0, 32*25);
-  full_packet_data[0]=0x05;
-  num_bytes=sprintf((char*)&full_packet_data[1], settings.msg)+2; //0x05 and 0x00
-  uint16_t packet_crc=CRC_M17(full_packet_data, num_bytes);
-  full_packet_data[num_bytes]  =packet_crc>>8;
-  full_packet_data[num_bytes+1]=packet_crc&0xFF;
-  num_bytes+=2; //count 2-byte CRC too
 
   //encode dst, src for the lsf struct
   uint64_t dst_enc=0, src_enc=0;
@@ -377,7 +398,7 @@ int main(void)
   lsf.crc[0]=lsf_crc>>8;
   lsf.crc[1]=lsf_crc&0xFF;
 
-  generate_baseband(settings.phase);
+  generate_baseband(settings.msg, settings.phase);
 
   /*while(1)
   {
@@ -399,25 +420,27 @@ int main(void)
 		  HAL_GPIO_WritePin(PTT_OUT_GPIO_Port, PTT_OUT_Pin, 1);
 		  HAL_Delay(60);
 
-		  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t*)data, 5*SYM_PER_FRA*10+1, DAC_ALIGN_12B_R);
+		  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t*)data, total_samples, DAC_ALIGN_12B_R);
+		  HAL_TIM_Base_Start(&htim7); //48kHz clock
 
 		  state=ST_TX;
 	  }
 
 	  //PTT up
-	  if(ptt_in==PTT_INACTIVE && state==ST_TX)
+	  /*if(ptt_in==PTT_INACTIVE && state==ST_TX)
 	  {
 		  HAL_Delay(60);
 		  HAL_GPIO_WritePin(PTT_OUT_GPIO_Port, PTT_OUT_Pin, 0);
 
 		  state=ST_RX;
-	  }
+	  }*/
 
 	  //stop TX - no more baseband
 	  if(tx_done && state==ST_TX)
 	  {
+		  HAL_TIM_Base_Stop(&htim7); //48kHz clock
 		  tx_done=0;
-		  HAL_Delay(200);
+		  HAL_Delay(40);
 		  HAL_GPIO_WritePin(PTT_OUT_GPIO_Port, PTT_OUT_Pin, 0);
 		  ptt_in=PTT_INACTIVE;
 		  state=ST_RX;
