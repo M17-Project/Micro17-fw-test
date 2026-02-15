@@ -383,20 +383,8 @@ int main(void)
   settings.phase=0; //inverted
 
   //encode dst, src for the lsf struct
-  uint64_t dst_enc=0, src_enc=0;
-  uint16_t type=0;
-  encode_callsign_value(&dst_enc, (uint8_t*)settings.dst_raw);
-  encode_callsign_value(&src_enc, (uint8_t*)settings.src_raw);
-  for(int8_t i=5; i>=0; i--)
-  {
-	  lsf.dst[5-i]=(dst_enc>>(i*8))&0xFF;
-	  lsf.src[5-i]=(src_enc>>(i*8))&0xFF;
-  }
-
-  type=((uint16_t)0x01<<1)|((uint16_t)settings.can<<7); //packet mode, content: data
-  lsf.type[0]=(uint16_t)type>>8;
-  lsf.type[1]=(uint16_t)type&0xFF;
-  memset(&lsf.meta, 0, 112/8);
+  set_LSF(&lsf, settings.src_raw, settings.dst_raw,
+		  M17_TYPE_PACKET | M17_TYPE_CAN(settings.can), NULL);
 
   //calculate LSF CRC
   uint16_t lsf_crc=LSF_CRC(&lsf);
